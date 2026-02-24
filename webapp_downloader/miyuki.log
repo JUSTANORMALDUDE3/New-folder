@@ -13,3 +13,8 @@ Miyuki - 2026-02-24 23:58:52 - DEBUG - Split string content raw: 'f=\'8://7.6/5-
 Miyuki - 2026-02-24 23:58:52 - DEBUG - Split parts array (length 16): ["f=\\'8://7.6/5-4-3-2-1/e.0\\';d=\\'8://7.6/5-4-3-2-1/c/9.0\\';b=\\'8://7.6/5-4-3-2-1/a/9.0\\';',16,16,'m3u8", '06f630edd449', '81af', '41d8', '07f3', '803c1d1c', 'com', 'surrit', 'https', 'video', '1280x720', 'source1280', '842x480', 'source842', 'playlist', 'source']
 Miyuki - 2026-02-24 23:58:52 - INFO - Constructed UUID successfully: 803c1d1c-07f3-41d8-81af-06f630edd449
 Miyuki - 2026-02-24 23:58:52 - INFO - Found title: 'HRV-023 Life&#039;s First Trance State Super Iki Cum Sex BES', Sanitized: 'HRV-023_Life&#039;s_First_Trance_State_Super_Iki_Cum_Sex_BES_uncensored'
+Miyuki - 2026-02-25 00:15:31 - INFO - Successfully matched eval split string content.
+Miyuki - 2026-02-25 00:15:31 - DEBUG - Split string content raw: 'f=\'8://7.6/5-4-3-2-1/e.0\';d=\'8://7.6/5-4-3-2-1/c/9.0\';b=\'8://7.6/5-4-3-2-1/a/9.0\';',16,16,'m3u8|06f630edd449|81af|41d8|07f3|803c1d1c|com|surrit|https|video|1280x720|source1280|842x480|source842|playlist|source'
+Miyuki - 2026-02-25 00:15:31 - DEBUG - Split parts array (length 16): ["f=\\'8://7.6/5-4-3-2-1/e.0\\';d=\\'8://7.6/5-4-3-2-1/c/9.0\\';b=\\'8://7.6/5-4-3-2-1/a/9.0\\';',16,16,'m3u8", '06f630edd449', '81af', '41d8', '07f3', '803c1d1c', 'com', 'surrit', 'https', 'video', '1280x720', 'source1280', '842x480', 'source842', 'playlist', 'source']
+Miyuki - 2026-02-25 00:15:31 - INFO - Constructed UUID successfully: 803c1d1c-07f3-41d8-81af-06f630edd449
+Miyuki - 2026-02-25 00:15:31 - INFO - Found title: 'HRV-023 Life&#039;s First Trance State Super Iki Cum Sex BES', Sanitized: 'HRV-023_Life&#039;s_First_Trance_State_Super_Iki_Cum_Sex_BES_uncensored'
