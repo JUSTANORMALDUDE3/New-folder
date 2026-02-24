@@ -1,28 +1,32 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MissAV Downloader</title>
+    <meta name="description" content="Download videos from MissAV directly to your device.">
     <link rel="stylesheet" href="/static/style.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
+
 <body>
     <div class="card">
         <h1>MissAV Downloader</h1>
+        <p class="subtitle">Paste a URL and download directly to your device</p>
         <div class="input-group">
-            <input type="url" id="url-input" placeholder="Paste MissAV URL here..." required>
+            <input type="url" id="url-input" placeholder="https://missav.ws/..." required>
         </div>
-        <div class="action-row">
-            <div class="progress-bar-container">
-                <div class="progress-bar" id="progress-bar">
-                    <span id="progress-text">0%</span>
-                </div>
+        <button id="download-btn">Download</button>
+        <div class="progress-bar-container">
+            <div class="progress-bar" id="progress-bar">
+                <span id="progress-text">0%</span>
             </div>
-            <button id="download-btn">Download</button>
         </div>
-        <div class="status-box" id="status-box">Ready to download</div>
+        <div class="status-box" id="status-box">Ready</div>
+        <div class="file-name" id="file-name"></div>
     </div>
     <script src="/static/script.js"></script>
 </body>
+
 </html>

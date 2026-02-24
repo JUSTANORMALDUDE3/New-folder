@@ -1,98 +1,85 @@
 import os
 import re
-import sys
 import uuid
 import threading
-import concurrent.futures
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify, render_template, Response
 
 import urllib3
 from curl_cffi import requests as cffi_requests
 from miyuki.video_downloader import VideoDownloader
 from miyuki.config import VIDEO_M3U8_PREFIX, VIDEO_PLAYLIST_SUFFIX, MOVIE_SAVE_PATH_ROOT
 
-# Disable insecure request warnings when bypassing SSL verification
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 app = Flask(__name__)
 
-# In-memory progress tracking dict
-progress_store = {}
+# In-memory store for prepared download metadata (not the video itself)
+prepared_downloads = {}
 
-# Folder to save output files
-DOWNLOAD_DIR = "downloads"
-if not os.path.exists(DOWNLOAD_DIR):
-    os.makedirs(DOWNLOAD_DIR)
-
-def download_segment(scraper, url, index, max_retries=3):
-    """Downloads a single video segment with retries."""
-    for attempt in range(max_retries):
-        try:
-            resp = scraper.get(url, timeout=15)
-            if resp.status_code == 200:
-                return index, resp.content
-        except Exception:
-            pass
-    return index, None
 
 def get_scraper():
     """Create a curl_cffi session to bypass Cloudflare protection."""
     return cffi_requests.Session(impersonate="chrome")
 
-def perform_download(download_id, url):
-    """Background thread function to process the download without blocking HTTP requests."""
-    progress_store[download_id] = {
-        "status": "Starting metadata extraction...",
-        "progress": 0,
-        "file_name": None,
-        "error": False
-    }
+
+def download_segment(scraper, url, max_retries=3):
+    """Downloads a single video segment with retries. Returns bytes or None."""
+    for _ in range(max_retries):
+        try:
+            resp = scraper.get(url, timeout=15)
+            if resp.status_code == 200:
+                return resp.content
+        except Exception:
+            pass
+    return None
+
+
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+
+@app.route('/prepare', methods=['POST'])
+def prepare_download():
+    """
+    Extracts video metadata (title, UUID, quality, segment count).
+    Returns JSON with a download_id the client uses to start streaming.
+    No video data is stored on the server.
+    """
+    data = request.json
+    url = data.get('url', '').strip()
+
+    if not re.match(r'^https?://(www\.)?missav\.(com|ws|ai)/.*$', url):
+        return jsonify({"error": "Invalid MissAV URL."}), 400
 
     try:
-        if not re.match(r'^https?://(www\.)?missav\.(com|ws|ai)/.*$', url):
-            progress_store[download_id]["status"] = "Invalid MissAV URL provided."
-            progress_store[download_id]["error"] = True
-            return
-
         scraper = get_scraper()
         options = {}
         dl = VideoDownloader(url, scraper, options)
 
-        # Temporary dummy directory requirement for miyuki
         if not os.path.exists(MOVIE_SAVE_PATH_ROOT):
             os.makedirs(MOVIE_SAVE_PATH_ROOT)
 
         if not dl._fetch_metadata():
-            progress_store[download_id]["status"] = "Video not found or failed to fetch metadata."
-            progress_store[download_id]["error"] = True
-            return
+            return jsonify({"error": "Video not found or metadata extraction failed."}), 404
 
         title = dl.title or dl.movie_name
-        progress_store[download_id]["status"] = "Extracting highest quality stream..."
 
         playlist_url = f"{VIDEO_M3U8_PREFIX}{dl.uuid}{VIDEO_PLAYLIST_SUFFIX}"
         playlist_resp = scraper.get(playlist_url)
         if playlist_resp.status_code != 200:
-            progress_store[download_id]["status"] = "Network failure while fetching video playlist."
-            progress_store[download_id]["error"] = True
-            return
+            return jsonify({"error": "Failed to fetch video playlist."}), 502
 
         final_quality, resolution_url = dl._get_final_quality_and_resolution(playlist_resp.text)
         if not final_quality:
-            progress_store[download_id]["status"] = "Could not determine available video quality stream."
-            progress_store[download_id]["error"] = True
-            return
+            return jsonify({"error": "Could not determine video quality."}), 500
 
         video_m3u8_url = f"{VIDEO_M3U8_PREFIX}{dl.uuid}/{resolution_url}"
         video_m3u8_resp = scraper.get(video_m3u8_url)
         if video_m3u8_resp.status_code != 200:
-            progress_store[download_id]["status"] = "Network failure fetching video segments."
-            progress_store[download_id]["error"] = True
-            return
+            return jsonify({"error": "Failed to fetch video segment list."}), 502
 
-        # Detect total segments
         video_offset_max = -1
-        # It's an M3U8 payload
         for line in reversed(video_m3u8_resp.text.strip().splitlines()):
             if line.endswith('.jpeg'):
                 match = re.search(r'video(\d+)\.jpeg', line.strip())
@@ -101,92 +88,77 @@ def perform_download(download_id, url):
                     break
 
         if video_offset_max == -1:
-            progress_store[download_id]["status"] = "Could not parse video stream segments."
-            progress_store[download_id]["error"] = True
-            return
+            return jsonify({"error": "Could not parse video segments."}), 500
 
         num_segments = video_offset_max + 1
-        
-        # File size safety limit (~2.5GB for Render free tier memory safety)
-        if num_segments > 5000:
-            progress_store[download_id]["status"] = "Video too large to process on this server instance."
-            progress_store[download_id]["error"] = True
-            return
-
         safe_title = re.sub(r'[<>:"/\\|?*\s]+', '_', title).strip('_')
-        output_filename = os.path.join(DOWNLOAD_DIR, f"{safe_title}.mp4")
+        resolution_prefix = resolution_url.split('/')[0]
 
-        progress_store[download_id]["file_name"] = f"{safe_title}.mp4"
-        progress_store[download_id]["status"] = "Downloading chunks..."
+        download_id = str(uuid.uuid4())
+        prepared_downloads[download_id] = {
+            "uuid": dl.uuid,
+            "resolution_prefix": resolution_prefix,
+            "num_segments": num_segments,
+            "file_name": f"{safe_title}.mp4",
+            "quality": final_quality,
+        }
 
-        segments_content = {}
-        downloaded_count = 0
-
-        # Concurrent downloading
-        with concurrent.futures.ThreadPoolExecutor(max_workers=15) as executor:
-            future_to_index = {
-                executor.submit(
-                    download_segment, 
-                    scraper, 
-                    f"https://surrit.com/{dl.uuid}/{resolution_url.split('/')[0]}/video{i}.jpeg", 
-                    i
-                ): i for i in range(num_segments)
-            }
-
-            for future in concurrent.futures.as_completed(future_to_index):
-                index, content = future.result()
-                if content:
-                    segments_content[index] = content
-                
-                downloaded_count += 1
-                progress = int((downloaded_count / num_segments) * 100)
-                progress_store[download_id]["progress"] = progress
-
-        progress_store[download_id]["status"] = "Merging file segments to mp4..."
-
-        with open(output_filename, 'wb') as outfile:
-            for i in range(num_segments):
-                if i in segments_content:
-                    outfile.write(segments_content[i])
-
-        progress_store[download_id]["status"] = "Download Complete!"
-        progress_store[download_id]["progress"] = 100
+        return jsonify({
+            "download_id": download_id,
+            "file_name": f"{safe_title}.mp4",
+            "quality": final_quality,
+            "num_segments": num_segments,
+        })
 
     except Exception as e:
-        progress_store[download_id]["status"] = f"Error during download: {str(e)}"
-        progress_store[download_id]["error"] = True
+        return jsonify({"error": f"Server error: {str(e)}"}), 500
 
 
-@app.route('/')
-def index():
-    return render_template('index.html')
-
-
-@app.route('/download', methods=['POST'])
-def start_download():
-    data = request.json
-    url = data.get('url')
-    if not url:
-        return jsonify({"error": "No URL provided"}), 400
-
-    download_id = str(uuid.uuid4())
-    
-    # Run the scraping operation safely in a new thread
-    thread = threading.Thread(target=perform_download, args=(download_id, url))
-    thread.start()
-
-    return jsonify({"download_id": download_id})
-
-
-@app.route('/progress/<download_id>')
-def get_progress(download_id):
-    info = progress_store.get(download_id)
+@app.route('/stream/<download_id>')
+def stream_download(download_id):
+    """
+    Streams the video directly to the user's browser segment by segment.
+    Nothing is saved on the server — the data flows straight through.
+    """
+    info = prepared_downloads.pop(download_id, None)
     if not info:
-        return jsonify({"error": "Invalid download ID"}), 404
-    return jsonify(info)
+        return jsonify({"error": "Invalid or expired download ID."}), 404
+
+    video_uuid = info["uuid"]
+    resolution_prefix = info["resolution_prefix"]
+    num_segments = info["num_segments"]
+    file_name = info["file_name"]
+
+    scraper = get_scraper()
+
+    def generate():
+        for i in range(num_segments):
+            try:
+                segment_url = f"https://surrit.com/{video_uuid}/{resolution_prefix}/video{i}.jpeg"
+                content = download_segment(scraper, segment_url)
+                if content:
+                    yield content
+            except GeneratorExit:
+                return
+            except Exception:
+                continue
+
+    response = Response(
+        generate(),
+        mimetype='application/octet-stream',
+        headers={
+            'Content-Disposition': f'attachment; filename="{file_name}"',
+            'X-Total-Segments': str(num_segments),
+            'Access-Control-Expose-Headers': 'X-Total-Segments',
+            'Transfer-Encoding': 'chunked',
+            'Cache-Control': 'no-cache',
+            'X-Accel-Buffering': 'no',
+        }
+    )
+    response.timeout = None
+    return response
 
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
-    # Flask development server binding
-    app.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=port, threaded=True)
