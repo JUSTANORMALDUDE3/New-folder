@@ -94,6 +94,26 @@ def prepare_download():
         safe_title = re.sub(r'[<>:"/\\|?*\s]+', '_', title).strip('_')
         resolution_prefix = resolution_url.split('/')[0]
 
+        # Estimate total size by probing the first segment with HEAD request
+        estimated_size_str = "Unknown"
+        try:
+            sample_url = f"https://surrit.com/{dl.uuid}/{resolution_prefix}/video0.jpeg"
+            head_resp = scraper.get(sample_url, timeout=8)
+            content_length = int(head_resp.headers.get("Content-Length", 0))
+            if content_length == 0:
+                # HEAD not supported — use actual content length
+                content_length = len(head_resp.content)
+            if content_length > 0:
+                total_bytes = content_length * num_segments
+                if total_bytes >= 1_073_741_824:
+                    estimated_size_str = f"~{total_bytes / 1_073_741_824:.1f} GB"
+                elif total_bytes >= 1_048_576:
+                    estimated_size_str = f"~{total_bytes / 1_048_576:.0f} MB"
+                else:
+                    estimated_size_str = f"~{total_bytes / 1024:.0f} KB"
+        except Exception:
+            pass
+
         download_id = str(uuid.uuid4())
         prepared_downloads[download_id] = {
             "uuid": dl.uuid,
@@ -108,6 +128,7 @@ def prepare_download():
             "file_name": f"{safe_title}.mp4",
             "quality": final_quality,
             "num_segments": num_segments,
+            "estimated_size": estimated_size_str,
         })
 
     except Exception as e:

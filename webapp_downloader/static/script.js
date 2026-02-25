@@ -35,10 +35,10 @@ async function startDownload() {
             throw new Error(prepData.error || "Preparation failed.");
         }
 
-        const { download_id, file_name, quality, num_segments } = prepData;
+        const { download_id, file_name, quality, num_segments, estimated_size } = prepData;
 
         setProgress(50);
-        showStatus(`Found: ${file_name} (${quality}, ${num_segments} segments)`, "");
+        showStatus(`${quality} · ${estimated_size} · ${num_segments} segments — starting download...`, "");
         downloadBtn.textContent = "Starting download...";
 
         // Phase 2: Trigger native browser download by navigating to the stream URL.
